@@ -8,6 +8,10 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
@@ -58,5 +62,17 @@ public class SecurityConfig {
                 .formLogin(Customizer.withDefaults());
 
         return http.build();
+    }
+
+
+    @Bean
+    public UserDetailsService userDetailsService() {
+        UserDetails userDetails = User.builder()
+                .username("user")
+                .password("{bcrypt}$2a$10$3mgR/EqXssFq1jACbW5IOuejB5n6HbBm05xw7WTBKaWtjTerj0.Rm") // password
+                .roles("USER")
+                .build();
+
+        return new InMemoryUserDetailsManager(userDetails);
     }
 }
