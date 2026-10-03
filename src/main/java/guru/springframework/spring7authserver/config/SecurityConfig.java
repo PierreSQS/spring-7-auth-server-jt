@@ -13,7 +13,6 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
-import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -43,15 +42,12 @@ public class SecurityConfig {
     @Bean
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) {
-        OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
-                new OAuth2AuthorizationServerConfigurer();
-
         http
-                .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
-                .with(authorizationServerConfigurer, authServer ->
-                        authServer
-                                .oidc(Customizer.withDefaults())	// Enable OpenID Connect 1.0
-                )
+                .oauth2AuthorizationServer(authServer -> {
+                    http.securityMatcher(authServer.getEndpointsMatcher());
+                    authServer
+                            .oidc(Customizer.withDefaults());	// Enable OpenID Connect 1.0
+                })
                 .authorizeHttpRequests(authorize ->
                         authorize
                                 .anyRequest().authenticated()
