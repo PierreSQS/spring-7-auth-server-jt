@@ -49,12 +49,14 @@ Les acteurs :
 ```
  #  Qui → Où                                 Chaîne   Ce qui se passe
  ── ──────────────────────────────────────── ──────── ─────────────────────────────────────────────
- 1  🖥️ Client → 👤 Navigateur                  —      « Va te faire autoriser chez le serveur 9000 »
- 2  👤 GET /oauth2/authorize?client_id=...      1      Vérifie le client (RegisteredClientRepository).
+ 1  🖥️ Client → 👤 Navigateur                  —      Le client invente un secret PKCE (code_verifier)
+                                                       et envoie le navigateur vers le serveur 9000
+ 2  👤 GET /oauth2/authorize?client_id=...      1      Reçoit aussi le code_challenge (empreinte PKCE).
+       &code_challenge=...                             Vérifie le client (RegisteredClientRepository).
                                                        Utilisateur inconnu → mémorise la demande
                                                        et redirige vers /login
  3  👤 GET /login                               2      Affiche le formulaire de login
- 4  👤 POST /login  (user / password)           2      Vérifie le mot de passe (UserDetailsService).
+ 4  👤 POST /login  (user + mot de passe)       2      Vérifie le mot de passe (UserDetailsService).
                                                        OK → stocke « user est connecté » dans la
                                                        SESSION (cookie JSESSIONID), puis renvoie
                                                        vers la demande mémorisée à l'étape 2
@@ -63,8 +65,9 @@ Les acteurs :
                                                        « oidc-client veut accéder à profile… OK ? »
  6  👤 clique « Submit Consent »                1      Crée un CODE à usage unique, renvoie le
                                                        navigateur vers 127.0.0.1:8080/...?code=XYZ
- 7  🖥️ POST /oauth2/token                        1      Le client envoie code + oidc-client/secret.
-                                                       Vérifie le client et le code, puis crée les
+ 7  🖥️ POST /oauth2/token                        1      Le client envoie code + oidc-client/secret
+                                                       + code_verifier (le secret PKCE).
+                                                       Vérifie le client, le code et PKCE, puis crée les
                                                        tokens, signés avec JWKSource
                                                        → access token (JWT), ID token, refresh token
  8  🖥️ → API (un autre projet)                  —      Le client appelle une API avec le token.
@@ -80,10 +83,11 @@ Les acteurs :
 
 ### Se connecter ne suffit pas pour obtenir un token
 
-Il faut trois choses :
+Il faut quatre choses :
 1. **L'utilisateur s'est connecté** (chaîne 2).
 2. **L'utilisateur a donné son accord** sur la page de consentement (`requireAuthorizationConsent(true)`).
 3. **L'application cliente prouve son identité** avec `oidc-client` / `secret` lors de l'échange du code.
+4. **L'application cliente présente le `code_verifier`** qui correspond au `code_challenge` envoyé au début (PKCE, voir section 6).
 
 Le token n'est jamais remis au navigateur : il est remis à **l'application cliente**.
 
@@ -93,16 +97,98 @@ Le token n'est jamais remis au navigateur : il est remis à **l'application clie
 ## 5. Tester soi-même (sans application cliente)
 
 1. Lancer le serveur : `./mvnw spring-boot:run`.
-2. Ouvrir dans le navigateur :
+Ce test utilise une paire PKCE toute prête : l'exemple officiel de la RFC 7636 (annexe B).
+
+| Paramètre | Valeur | Envoyé à |
+|---|---|---|
+| `code_verifier` (le secret) | `dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk` | `/oauth2/token` (étape 5) |
+| `code_challenge` (son empreinte SHA-256) | `E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM` | `/oauth2/authorize` (étape 2) |
+
+Une vraie application génère une nouvelle paire à chaque connexion. Pour un test manuel, la paire fixe suffit.
+
+1. Lancer le serveur : `./mvnw spring-boot:run`.
+2. Ouvrir dans le navigateur (une seule ligne) :
    ```
-   http://localhost:9000/oauth2/authorize?response_type=code&client_id=oidc-client&scope=openid%20profile&redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client
+   http://localhost:9000/oauth2/authorize?response_type=code&client_id=oidc-client&scope=openid%20profile&redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256
    ```
-3. Se connecter avec `user` / `password`, puis cocher `profile` et valider le consentement.
+3. Se connecter avec `user` et son mot de passe, puis cocher `profile` et valider le consentement.
 4. Le navigateur affiche une erreur, car rien ne tourne sur le port 8080. C'est normal : copier le `code=...` dans la barre d'adresse.
-5. Échanger le code contre les tokens, comme le ferait l'application cliente. Dans PowerShell, utiliser `curl.exe` et non `curl` :
+5. Échanger le code contre les tokens, comme le ferait l'application cliente. Dans PowerShell, utiliser `curl.exe` et non `curl` (une seule ligne) :
    ```
-   curl.exe -u oidc-client:secret -d grant_type=authorization_code -d code=COLLER_LE_CODE_ICI -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client http://localhost:9000/oauth2/token
+   curl.exe -u oidc-client:secret -d grant_type=authorization_code -d code=COLLER_LE_CODE_ICI -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk http://localhost:9000/oauth2/token
    ```
 6. La réponse est un JSON avec `access_token`, `id_token` et `refresh_token`. Coller l'`access_token` sur https://jwt.io pour voir son contenu.
 
+Erreurs fréquentes :
+- `OAuth 2.0 Parameter: code_challenge` à l'étape 2 : le `code_challenge` manque dans l'URL.
+- `{"error":"invalid_grant"}` à l'étape 5 : le `code_verifier` manque ou est faux, ou le code a déjà été utilisé ou a expiré. Le code est à usage unique et ne vit que quelques minutes : recommencer à l'étape 2.
+
 Comme le logging de sécurité est en `trace`, la console montre pour chaque requête laquelle des deux chaînes la prend en charge.
+
+## 6. PKCE et versions de Spring Boot
+
+### Ce qu'est PKCE
+
+PKCE (Proof Key for Code Exchange, RFC 7636) ne **remplace** pas le flux authorization code : il s'y **ajoute**.
+
+- Au début, le client invente un secret aléatoire, le `code_verifier`. Il envoie seulement son empreinte, le `code_challenge`, à `/oauth2/authorize`.
+- À la fin, il envoie le secret lui-même à `/oauth2/token`. Le serveur vérifie que l'empreinte correspond.
+- Si quelqu'un vole le code pendant la redirection, il ne peut pas l'utiliser : il lui manque le `code_verifier`, qui n'est jamais passé par le navigateur.
+
+Les flux `client_credentials` et `refresh_token` ne sont pas concernés : il n'y a ni navigateur, ni code.
+
+### Côté serveur (ce projet)
+
+Avec Spring Boot 4.1.1 (Spring Security 7.1.1), `ClientSettings.builder()` met `requireProofKey(true)` par défaut. Ce projet n'ayant pas changé ce réglage, **PKCE est obligatoire** pour `oidc-client`. Une demande sans `code_challenge` est refusée.
+
+### Côté client : ça dépend de la version
+
+Le point clé est le type de client :
+- **Client public** (sans secret, ex. application mobile ou SPA) : PKCE automatique, dans toutes les versions récentes.
+- **Client confidentiel** (avec secret, comme notre `oidc-client` / `secret`) : le comportement dépend de la version.
+
+| Client | Spring Security | PKCE pour un client confidentiel |
+|---|---|---|
+| Spring Boot 4.x | 7.x | ✅ Activé par défaut. La doc 7.1.1 indique qu'il faut le **désactiver** (`ClientRegistration.clientSettings.requireProofKey = false`) si le serveur ne le supporte pas. |
+| Spring Boot 3.x | 6.x | ❌ Pas envoyé par défaut. Il faut l'activer soi-même. |
+
+Version 3.x exacte à partir de laquelle un réglage `requireProofKey` existe aussi côté client : non vérifiée (peut-être 3.5).
+
+**Symptôme** : un client Spring Boot 3.x configuré avec `oidc-client` / `secret`, sans réglage spécial, est refusé par ce serveur avec l'erreur `OAuth 2.0 Parameter: code_challenge`.
+
+### Solutions pour un client Spring Boot 3.x
+
+**1. Activer PKCE côté client (recommandé)**
+
+```java
+@Bean
+SecurityFilterChain securityFilterChain(HttpSecurity http,
+        ClientRegistrationRepository clientRegistrationRepository) throws Exception {
+
+    DefaultOAuth2AuthorizationRequestResolver resolver =
+            new DefaultOAuth2AuthorizationRequestResolver(
+                    clientRegistrationRepository, "/oauth2/authorization");
+    resolver.setAuthorizationRequestCustomizer(
+            OAuth2AuthorizationRequestCustomizers.withPkce());   // ajoute PKCE
+
+    http
+        .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+        .oauth2Login(login -> login
+            .authorizationEndpoint(endpoint ->
+                endpoint.authorizationRequestResolver(resolver)));
+    return http.build();
+}
+```
+
+**2. Désactiver PKCE côté serveur, pour ce client seulement (déconseillé)**
+
+Dans `SecurityConfig.java` de ce projet :
+
+```java
+.clientSettings(ClientSettings.builder()
+        .requireAuthorizationConsent(true)
+        .requireProofKey(false)      // accepte les clients sans PKCE
+        .build())
+```
+
+Pratique pour un vieux client qu'on ne peut pas modifier, mais moins sûr.

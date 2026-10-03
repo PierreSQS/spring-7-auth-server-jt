@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Spring Authorization Server (OAuth2 + OpenID Connect 1.0) built for a Udemy course (John Thompson, Spring Framework 7). Spring Boot 4.0.3, Java 25, Maven. Commits are prefixed with the course section/chapter (e.g. `Sec23_Chap245-XX: ...`).
+Spring Authorization Server (OAuth2 + OpenID Connect 1.0) built for a Udemy course (John Thompson, Spring Framework 7). Spring Boot 4.1.1 (Spring Security 7.1.1), Java 25, Maven. Commits are prefixed with the course section/chapter (e.g. `Sec23_Chap245-XX: ...`). Branches are named after the Spring Boot version they target (e.g. `sb411` = 4.1.1).
 
 ## Commands
 
@@ -23,8 +23,8 @@ All authorization-server wiring lives in `config/SecurityConfig.java`:
 - **Two ordered `SecurityFilterChain`s**:
   - `@Order(1)` — scoped to `OAuth2AuthorizationServerConfigurer.getEndpointsMatcher()` (authorize, token, JWKS, OIDC discovery, userinfo, etc.). OIDC enabled; unauthenticated HTML requests are redirected to `/login`; acts as a JWT resource server for userinfo/client registration.
   - `@Order(2)` — everything else, with default form login (which serves the `/login` page the first chain redirects to).
-- **Users**: `InMemoryUserDetailsManager` with `user` / `password` (bcrypt-encoded).
-- **Clients**: `InMemoryRegisteredClientRepository` with one client `oidc-client` / `secret` (`{noop}`), `client_secret_basic`, grants `authorization_code`, `refresh_token`, `client_credentials`; scopes `openid`, `profile`, `message.read`, `message.write`; consent required. Redirect URI `http://127.0.0.1:8080/login/oauth2/code/oidc-client` (the client app is expected on port 8080).
+- **Users**: `InMemoryUserDetailsManager` with one user `user` (password stored as a bcrypt hash). Never write the plain-text password in code comments or docs.
+- **Clients**: `InMemoryRegisteredClientRepository` with one client `oidc-client` / `secret` (`{noop}`), `client_secret_basic`, grants `authorization_code`, `refresh_token`, `client_credentials`; scopes `openid`, `profile`, `message.read`, `message.write`; consent required. Redirect URI `http://127.0.0.1:8080/login/oauth2/code/oidc-client` (the client app is expected on port 8080). PKCE is **required** for `authorization_code`: `ClientSettings.builder()` defaults to `requireProofKey(true)` in Spring Security 7.1, and this project doesn't override it. Spring Boot 4.x clients send PKCE automatically, even confidential ones; Spring Boot 3.x confidential clients don't, and get `OAuth 2.0 Parameter: code_challenge` unless they add `OAuth2AuthorizationRequestCustomizers.withPkce()`. Details in `docs/oauth2-workflow.md`, section 6.
 - **Signing keys**: a fresh RSA 2048 key pair is generated at every startup (`jwkSource`), so issued tokens become invalid after a restart.
 - `AuthorizationServerSettings` uses defaults (standard `/oauth2/*` and `/.well-known/*` endpoint paths).
 
@@ -44,7 +44,7 @@ All authorization-server wiring lives in `config/SecurityConfig.java`:
         ▼                   ▼                 ▼               ▼                      ▼
 ┌────────────────┐ ┌──────────────────┐ ┌────────────┐  ┌────────────┐    ┌─────────────────────┐
 │ Authorization  │ │ RegisteredClient │ │ JwtDecoder │─►│ JWKSource  │    │ UserDetailsService  │
-│ ServerSettings │ │ Repository       │ │            │  │ RSA keys   │    │ user / password     │
+│ ServerSettings │ │ Repository       │ │            │  │ RSA keys   │    │ user (bcrypt)       │
 └────────────────┘ └──────────────────┘ └────────────┘  └────────────┘    └─────────────────────┘
 ```
 
@@ -54,7 +54,7 @@ All authorization-server wiring lives in `config/SecurityConfig.java`:
 |---|---|---|
 | `authorizationServerSecurityFilterChain` | Creates and protects the OAuth2 URLs. Redirects to `/login` if the user isn't logged in. | `@Order(1)`: checked first |
 | `defaultSecurityFilterChain` | Protects all other URLs and shows the login page. | `@Order(2)`: default Spring login page |
-| `UserDetailsService` | The **user directory**: "Does this user exist, and what is their password?" | One user in memory: `user` / `password` |
+| `UserDetailsService` | The **user directory**: "Does this user exist, and what is their password?" | One user in memory: `user` (bcrypt password) |
 | `RegisteredClientRepository` | The **list of apps** allowed to ask for tokens, with their secret, allowed URLs and scopes. | One app: `oidc-client` / `secret` |
 | `JWKSource` | The **key ring**. The private key signs every token; the public key is published at `/oauth2/jwks`. | New RSA key at each startup, so old tokens become invalid |
 | `JwtDecoder` | **Reads and checks** a token, using the public key from `JWKSource`. | Used when an app calls `/userinfo` with a token |
