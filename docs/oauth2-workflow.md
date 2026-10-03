@@ -192,3 +192,33 @@ Dans `SecurityConfig.java` de ce projet :
 ```
 
 Pratique pour un vieux client qu'on ne peut pas modifier, mais moins sûr.
+
+## 7. `.oauth2ResourceServer(jwt)` n'est plus nécessaire (SB 4.1.1)
+
+Dans la chaîne `@Order(1)`, le code du cours contient :
+
+```java
+// accept access tokens for User Info and/or Client Registration
+.oauth2ResourceServer((oauth2 ->
+        oauth2.jwt(Customizer.withDefaults())));
+```
+
+**Rôle** : permettre à la chaîne 1 d'accepter un token JWT (`Authorization: Bearer ...`) comme preuve d'identité. C'est nécessaire pour `/userinfo`, que l'application cliente appelle avec son access token, sans cookie de session.
+
+**Constat** : la doc officielle de Spring Security 7.1 n'a plus cette ligne. Test manuel fait avec Spring Boot 4.1.1 (Spring Security 7.1.1) :
+
+| Test | **Avec** la ligne | **Sans** la ligne |
+|---|---|---|
+| Obtenir un token (`/oauth2/token`) | ✅ OK | ✅ OK |
+| `/userinfo` **avec** le token | ✅ 200 `{"sub":"user"}` | ✅ 200 `{"sub":"user"}` |
+| `/userinfo` **sans** token | 🔒 302 vers `/login` | 🔒 302 vers `/login` |
+
+Les logs `trace` montrent que, même **sans** la ligne, la chaîne 1 contient le filtre `BearerTokenAuthenticationFilter` (celui qui lit les tokens) et affichent « Authenticated token ». Spring l'ajoute **automatiquement** dès que OIDC est activé (`.oidc(...)`).
+
+**Conclusion** : avec SB 4.1.1, la ligne est superflue. Elle est mise en commentaire dans `SecurityConfig.java`, avec une note. Dans les versions plus anciennes, elle était nécessaire : c'est pour ça qu'elle figure dans le cours.
+
+**Refaire le test** : suivre la section 5 pour obtenir un token, puis :
+
+```
+curl.exe -H "Authorization: Bearer COLLER_L_ACCESS_TOKEN_ICI" http://localhost:9000/userinfo
+```

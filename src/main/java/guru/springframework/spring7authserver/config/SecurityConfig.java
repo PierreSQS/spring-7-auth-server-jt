@@ -59,10 +59,13 @@ public class SecurityConfig {
                                 new LoginUrlAuthenticationEntryPoint("/login"),
                                 new MediaTypeRequestMatcher(MediaType.TEXT_HTML)
                         )
-                )
+                );
+                // Not needed anymore with SB 4.1.1 (Spring Security 7.1.1): enabling OIDC
+                // automatically adds JWT bearer token support for /userinfo.
+                // Verified manually, see docs/oauth2-workflow.md section 7.
                 // accept access tokens for User Info and/or Client Registration
-                .oauth2ResourceServer((oauth2 ->
-                        oauth2.jwt(Customizer.withDefaults())));
+                // .oauth2ResourceServer((oauth2 ->
+                //         oauth2.jwt(Customizer.withDefaults())));
 
         return http.build();
     }
