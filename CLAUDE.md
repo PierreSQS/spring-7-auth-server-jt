@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Spring Authorization Server (OAuth2 + OpenID Connect 1.0) built for a Udemy course (John Thompson, Spring Framework 7). Spring Boot 4.1.1 (Spring Security 7.1.1), Java 25, Maven. Commits are prefixed with the course section/chapter (e.g. `Sec23_Chap245-XX: ...`). Branches are named after the Spring Boot version they target (e.g. `sb411` = 4.1.1).
+Spring Authorization Server (OAuth2 + OpenID Connect 1.0) built for a Udemy course (John Thompson, Spring Framework 7). Spring Boot 4.1.1 (Spring Security 7.1.1), Java 25, Maven. Commits are prefixed with the course section/chapter (e.g. `Sec23_Chap245-XX: ...`): `-XX` marks a personal trial or variant that is not part of the lecture, `-NOK` a commit known not to work yet (fixed in a later commit).
+
+Branches:
+- My branches are named `<JT branch>-sb<version>`: they re-implement one branch of JT's original repo ([springframeworkguru/spring-6-auth-server](https://github.com/springframeworkguru/spring-6-auth-server), Spring Boot 3.4.0) on a given Spring Boot version. Current ones: `8-package-refactor-sb403` (reference, SB 4.0.3) and `8-package-refactor-sb411` (SB 4.1.1, default branch on GitHub). Both correspond to Section 23, Chapter 245.
+- JT's branches (`1-initial-project` … `10-k8s-issuer-name`, `8-server-settings`, `junie-init`, `main`) are copied unchanged into `origin` and must never be modified. The local remote `jt` points to JT's repo (fetch only, push disabled).
+- Branches are compared, **never merged**: no pull requests. A file that must exist on every one of my branches (like `README.md`) is committed on the reference branch and cherry-picked onto the others, so it never shows up in comparisons.
+- Compare JT vs mine locally with `git diff -M origin/8-package-refactor origin/8-package-refactor-sb411` (GitHub can't compare unrelated histories).
 
 ## Commands
 
