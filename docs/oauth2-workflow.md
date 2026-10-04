@@ -250,3 +250,80 @@ Les logs `trace` montrent que, même **sans** la ligne, la chaîne 1 contient le
 ```
 curl.exe -H "Authorization: Bearer COLLER_L_ACCESS_TOKEN_ICI" http://localhost:9000/userinfo
 ```
+
+## 8. Utiliser le refresh token
+
+### Le principe
+
+| Token | Durée de vie (défauts de Spring) | Rôle |
+|---|---|---|
+| `access_token` | **5 minutes** | Appeler les API |
+| `refresh_token` | **60 minutes** | Obtenir un nouvel `access_token` quand l'ancien a expiré |
+
+Sans refresh token, l'application devrait renvoyer l'utilisateur au login toutes les 5 minutes. Avec lui, elle obtient un nouvel access token **en arrière-plan** : ni navigateur, ni mot de passe, ni consentement, ni PKCE. Il suffit du refresh token et du secret du client.
+
+Le refresh token n'est **pas un JWT** mais un token **opaque** : une suite aléatoire de caractères, sans points, qui ne contient aucune information. Le serveur garde en mémoire à quelle autorisation il correspond. Il ne sert qu'au serveur d'autorisation (jamais envoyé à une API), et il peut être annulé à tout moment. Avec Spring Authorization Server, le refresh token est toujours opaque.
+
+### Les étapes (PowerShell)
+
+On garde cette fois les réponses dans des variables (`$r`, `$r2`), avec `| ConvertFrom-Json`, pour ne plus copier les tokens à la main.
+
+**① Obtenir les tokens** avec un **nouveau** code (étapes 2 à 4 de la section 5), puis **tout de suite** :
+
+```
+$code = "COLLER_LE_NOUVEAU_CODE_ICI"
+$r = curl.exe -s -u oidc-client:secret -d grant_type=authorization_code -d "code=$code" -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk http://localhost:9000/oauth2/token | ConvertFrom-Json
+$r.refresh_token
+```
+
+La dernière ligne doit afficher le refresh token (longue chaîne sans points). Si elle n'affiche rien, taper `$r` pour voir l'erreur.
+
+**② Utiliser le refresh token.** Pas d'urgence ici : il reste valable 60 minutes.
+
+```
+$tok = "http://localhost:9000/oauth2/token"
+$rt = $r.refresh_token
+$r2 = curl.exe -s -u oidc-client:secret -d grant_type=refresh_token -d "refresh_token=$rt" $tok | ConvertFrom-Json
+$r2
+```
+
+Seulement 3 paramètres :
+- `-u oidc-client:secret` : l'application prouve qui elle est. Un refresh token volé ne sert à rien sans le secret du client.
+- `grant_type=refresh_token` : « je veux échanger un refresh token ».
+- `refresh_token=...` : le refresh token lui-même.
+
+**③ Comparer l'ancien et le nouveau :**
+
+```
+$r.access_token -eq $r2.access_token
+$r.refresh_token -eq $r2.refresh_token
+```
+
+### Résultat obtenu (SB 4.1.1)
+
+| Élément | Résultat | Signification |
+|---|---|---|
+| `access_token` | nouveau JWT | Nouveau badge d'accès, valable de nouveau 5 minutes (`expires_in: 300`) |
+| `id_token` | nouveau JWT | Nouvelle « carte d'identité », car le scope `openid` avait été accordé |
+| `refresh_token` | **le même** | Spring le réutilise par défaut (`reuseRefreshTokens = true`) |
+| `scope` | `openid profile` | Les mêmes droits qu'au départ : un refresh ne peut pas en ajouter |
+| `$r.access_token -eq $r2.access_token` | `False` | L'access token a changé |
+| `$r.refresh_token -eq $r2.refresh_token` | `True` | Le refresh token est resté le même |
+
+On peut relancer l'étape ② autant de fois que voulu pendant 60 minutes. On peut aussi activer la « rotation » (un nouveau refresh token à chaque utilisation, plus sûr) avec `TokenSettings.builder().reuseRefreshTokens(false)` dans la configuration du client.
+
+### Le cycle de vie dans une vraie application
+
+1. L'utilisateur se connecte **une fois** : login, consentement, code, tokens (étape ①).
+2. Toutes les 5 minutes, l'access token expire. L'application utilise le refresh token, et l'utilisateur ne voit **rien** (étape ②).
+3. Après 60 minutes, le refresh token expire à son tour : l'utilisateur doit se reconnecter.
+
+### Pièges
+
+| Symptôme | Cause / solution |
+|---|---|
+| `$r.refresh_token` n'affiche rien | L'étape ① a échoué (code expiré ou déjà utilisé). Taper `$r` pour voir l'erreur, puis recommencer avec un nouveau code |
+| `invalid_grant` à l'étape ② | Le serveur a **redémarré** (refresh tokens stockés en mémoire, donc perdus), ou plus de 60 minutes se sont écoulées |
+| `option -d: requires parameter` puis `CommandNotFoundException` | La commande a été **coupée en deux lignes** au copier-coller. Elle doit tenir sur une seule ligne |
+| Les textes entre guillemets sont invisibles dans PowerShell | Simple problème de couleur avec certains fonds. Pour vérifier une variable : `Write-Host $code -ForegroundColor Yellow` |
+| Erreur `Invoke-WebRequest` | `curl` au lieu de **`curl.exe`** (voir section 5) |
