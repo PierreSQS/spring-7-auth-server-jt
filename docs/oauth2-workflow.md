@@ -96,24 +96,9 @@ Le token n'est jamais remis au navigateur : il est remis à **l'application clie
 
 ## 5. Tester soi-même (sans application cliente)
 
-> ⚠️ **Dans Windows PowerShell 5.1 : toujours écrire `curl.exe`, jamais `curl` tout court.**
->
-> Dans Windows PowerShell, `curl` n'est **pas** le vrai curl : c'est un **alias** (un surnom) vers la commande PowerShell `Invoke-WebRequest`, qui n'a pas les mêmes options. Résultat typique :
->
-> ```
-> Invoke-WebRequest : Der Parameter kann nicht verarbeitet werden, da der Parametername "u" nicht eindeutig ist.
-> ```
-> (en français : « le paramètre "u" est ambigu »)
->
-> Avec `curl.exe`, PowerShell lance le **vrai programme** curl (celui de Windows ou de Git), qui comprend `-u`, `-d`, etc.
->
-> | Je tape | PowerShell lance |
-> |---|---|
-> | `curl` | `Invoke-WebRequest` (alias) ❌ |
-> | `curl.exe` | le vrai curl ✅ |
->
-> Vérifier soi-même : `Get-Command curl` affiche `Alias curl -> Invoke-WebRequest`.
-> Pas de problème dans **Git Bash** ni dans **PowerShell 7**, où cet alias n'existe pas.
+Les commandes de ce document sont pour **Git Bash** (ou tout terminal Linux/macOS).
+
+> ℹ️ **Si tu utilises Windows PowerShell 5.1** : écrire `curl.exe` au lieu de `curl`. Dans PowerShell 5.1, `curl` tout court est un alias vers `Invoke-WebRequest`, qui ne comprend pas `-u`, `-d`… (erreur typique : `Invoke-WebRequest : ... Parametername "u" nicht eindeutig`). Les variables s'écrivent aussi autrement (`$code = "..."`). Dans Git Bash, `curl` est le vrai curl : pas de piège.
 
 Ce test utilise une paire PKCE toute prête : l'exemple officiel de la RFC 7636 (annexe B).
 
@@ -132,22 +117,30 @@ Une vraie application génère une nouvelle paire à chaque connexion. Pour un t
 3. Se connecter avec `user` et son mot de passe, puis cocher `profile` et valider le consentement.
    Si l'utilisateur est déjà connecté (cookie de session) et a déjà donné son accord, le navigateur passe **directement** à l'étape 4 : c'est normal.
 4. Le navigateur affiche une erreur, car rien ne tourne sur le port 8080. C'est normal : copier ce qui suit `code=` dans la barre d'adresse.
-5. **Tout de suite** (le code expire en 5 minutes), échanger le code contre les tokens, comme le ferait l'application cliente. Dans PowerShell, coller le code entre les guillemets de la première ligne, puis lancer les deux lignes (**`curl.exe`**, voir l'avertissement ci-dessus) :
+5. **Tout de suite** (le code expire en 5 minutes), échanger le code contre les tokens, comme le ferait l'application cliente. Dans Git Bash, coller le code entre les guillemets de la première ligne (**pas d'espace** autour du `=`), puis lancer le tout :
+   ```bash
+   code="COLLER_LE_CODE_ICI"
+   curl -u oidc-client:secret \
+     -d grant_type=authorization_code \
+     -d "code=$code" \
+     -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client \
+     -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk \
+     http://localhost:9000/oauth2/token
    ```
-   $code = "COLLER_LE_CODE_ICI"
-   curl.exe -u oidc-client:secret -d grant_type=authorization_code -d "code=$code" -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk http://localhost:9000/oauth2/token
-   ```
+   Le `\` en fin de ligne signifie « la commande continue à la ligne suivante » : les lignes restent courtes, donc pas de coupure au copier-coller. Il ne doit y avoir **aucun espace après** le `\`.
 6. La réponse est un JSON avec `access_token`, `id_token` et `refresh_token`. Coller l'`access_token` sur https://jwt.io pour voir son contenu.
 
 Erreurs fréquentes :
 
 | Symptôme | Cause / solution |
 |---|---|
-| `Invoke-WebRequest : ... Parametername "u" ...` | `curl` au lieu de **`curl.exe`** (voir l'avertissement en haut de cette section) |
 | `OAuth 2.0 Parameter: code_challenge` à l'étape 2 | Le `code_challenge` manque dans l'URL (URL coupée lors du copier-coller) |
 | `{"error":"invalid_grant"}` à l'étape 5 | Code **expiré** (5 min), **déjà utilisé**, ou serveur **redémarré** entre-temps ; ou `code_verifier` manquant/faux. Recommencer à l'étape 2 avec un **nouveau** code |
 | `{"error":"unsupported_grant_type"}` | Faute de frappe : c'est `authorization_code` (pas `authentication_code`) |
 | `{"error":"invalid_client"}` | Faute de frappe dans `oidc-client:secret` |
+| `code: command not found` | Espaces autour du `=` : écrire `code="..."`, pas `code = "..."` |
+| `curl: option -d: requires parameter` | Une ligne a été coupée, ou un espace traîne après un `\` |
+| `Invoke-WebRequest : ...` | Tu es dans PowerShell, pas dans Git Bash : voir l'encadré en haut de cette section |
 
 Un code ne s'échange **qu'une seule fois**. Le réutiliser déclenche dans les logs du serveur `WARN ... Invalidated authorization token(s) previously issued` : par sécurité, le serveur annule aussi les tokens déjà délivrés avec ce code (RFC 6749, section 4.1.2).
 
@@ -248,7 +241,7 @@ Les logs `trace` montrent que, même **sans** la ligne, la chaîne 1 contient le
 **Refaire le test** : suivre la section 5 pour obtenir un token, puis :
 
 ```
-curl.exe -H "Authorization: Bearer COLLER_L_ACCESS_TOKEN_ICI" http://localhost:9000/userinfo
+curl -H "Authorization: Bearer COLLER_L_ACCESS_TOKEN_ICI" http://localhost:9000/userinfo
 ```
 
 ## 8. Utiliser le refresh token
@@ -264,27 +257,35 @@ Sans refresh token, l'application devrait renvoyer l'utilisateur au login toutes
 
 Le refresh token n'est **pas un JWT** mais un token **opaque** : une suite aléatoire de caractères, sans points, qui ne contient aucune information. Le serveur garde en mémoire à quelle autorisation il correspond. Il ne sert qu'au serveur d'autorisation (jamais envoyé à une API), et il peut être annulé à tout moment. Avec Spring Authorization Server, le refresh token est toujours opaque.
 
-### Les étapes (PowerShell)
+### Les étapes (Git Bash)
 
-On garde cette fois les réponses dans des variables (`$r`, `$r2`), avec `| ConvertFrom-Json`, pour ne plus copier les tokens à la main.
+On garde cette fois les réponses dans des variables (`r`, `r2`), pour ne plus copier les tokens à la main. Pour extraire un champ du JSON, on utilise `grep` et `cut` (pas besoin d'outil supplémentaire).
 
 **① Obtenir les tokens** avec un **nouveau** code (étapes 2 à 4 de la section 5), puis **tout de suite** :
 
-```
-$code = "COLLER_LE_NOUVEAU_CODE_ICI"
-$r = curl.exe -s -u oidc-client:secret -d grant_type=authorization_code -d "code=$code" -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk http://localhost:9000/oauth2/token | ConvertFrom-Json
-$r.refresh_token
+```bash
+code="COLLER_LE_NOUVEAU_CODE_ICI"
+r=$(curl -s -u oidc-client:secret \
+  -d grant_type=authorization_code \
+  -d "code=$code" \
+  -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client \
+  -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk \
+  http://localhost:9000/oauth2/token)
+rt=$(echo "$r" | grep -o '"refresh_token":"[^"]*"' | cut -d'"' -f4)
+at1=$(echo "$r" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+echo "$rt"
 ```
 
-La dernière ligne doit afficher le refresh token (longue chaîne sans points). Si elle n'affiche rien, taper `$r` pour voir l'erreur.
+La dernière ligne doit afficher le refresh token (longue chaîne sans points). Si elle n'affiche rien, taper `echo "$r"` pour voir l'erreur.
 
 **② Utiliser le refresh token.** Pas d'urgence ici : il reste valable 60 minutes.
 
-```
-$tok = "http://localhost:9000/oauth2/token"
-$rt = $r.refresh_token
-$r2 = curl.exe -s -u oidc-client:secret -d grant_type=refresh_token -d "refresh_token=$rt" $tok | ConvertFrom-Json
-$r2
+```bash
+r2=$(curl -s -u oidc-client:secret \
+  -d grant_type=refresh_token \
+  -d "refresh_token=$rt" \
+  http://localhost:9000/oauth2/token)
+echo "$r2"
 ```
 
 Seulement 3 paramètres :
@@ -294,9 +295,17 @@ Seulement 3 paramètres :
 
 **③ Comparer l'ancien et le nouveau :**
 
+```bash
+at2=$(echo "$r2" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+rt2=$(echo "$r2" | grep -o '"refresh_token":"[^"]*"' | cut -d'"' -f4)
+[ "$at1" = "$at2" ] && echo "access token : le même" || echo "access token : NOUVEAU"
+[ "$rt" = "$rt2" ] && echo "refresh token : le même" || echo "refresh token : NOUVEAU"
 ```
-$r.access_token -eq $r2.access_token
-$r.refresh_token -eq $r2.refresh_token
+
+**Bonus : lire le contenu d'un access token** sans passer par jwt.io (la 2e partie d'un JWT, entre les deux points, est du JSON encodé en Base64) :
+
+```bash
+echo "$at2" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null; echo
 ```
 
 ### Résultat obtenu (SB 4.1.1)
@@ -307,8 +316,8 @@ $r.refresh_token -eq $r2.refresh_token
 | `id_token` | nouveau JWT | Nouvelle « carte d'identité », car le scope `openid` avait été accordé |
 | `refresh_token` | **le même** | Spring le réutilise par défaut (`reuseRefreshTokens = true`) |
 | `scope` | `openid profile` | Les mêmes droits qu'au départ : un refresh ne peut pas en ajouter |
-| `$r.access_token -eq $r2.access_token` | `False` | L'access token a changé |
-| `$r.refresh_token -eq $r2.refresh_token` | `True` | Le refresh token est resté le même |
+| comparaison access token | `NOUVEAU` | L'access token a changé |
+| comparaison refresh token | `le même` | Le refresh token est resté le même |
 
 On peut relancer l'étape ② autant de fois que voulu pendant 60 minutes. On peut aussi activer la « rotation » (un nouveau refresh token à chaque utilisation, plus sûr) avec `TokenSettings.builder().reuseRefreshTokens(false)` dans la configuration du client.
 
@@ -322,8 +331,7 @@ On peut relancer l'étape ② autant de fois que voulu pendant 60 minutes. On pe
 
 | Symptôme | Cause / solution |
 |---|---|
-| `$r.refresh_token` n'affiche rien | L'étape ① a échoué (code expiré ou déjà utilisé). Taper `$r` pour voir l'erreur, puis recommencer avec un nouveau code |
+| `echo "$rt"` n'affiche rien | L'étape ① a échoué (code expiré ou déjà utilisé). Taper `echo "$r"` pour voir l'erreur, puis recommencer avec un nouveau code |
 | `invalid_grant` à l'étape ② | Le serveur a **redémarré** (refresh tokens stockés en mémoire, donc perdus), ou plus de 60 minutes se sont écoulées |
-| `option -d: requires parameter` puis `CommandNotFoundException` | La commande a été **coupée en deux lignes** au copier-coller. Elle doit tenir sur une seule ligne |
-| Les textes entre guillemets sont invisibles dans PowerShell | Simple problème de couleur avec certains fonds. Pour vérifier une variable : `Write-Host $code -ForegroundColor Yellow` |
-| Erreur `Invoke-WebRequest` | `curl` au lieu de **`curl.exe`** (voir section 5) |
+| `curl: option -d: requires parameter` | Une ligne a été coupée, ou un espace traîne après un `\` |
+| Variables vides après avoir fermé le terminal | Les variables (`r`, `rt`…) n'existent que dans la fenêtre Git Bash où elles ont été créées |
