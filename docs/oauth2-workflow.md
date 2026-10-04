@@ -96,7 +96,25 @@ Le token n'est jamais remis au navigateur : il est remis à **l'application clie
 
 ## 5. Tester soi-même (sans application cliente)
 
-1. Lancer le serveur : `./mvnw spring-boot:run`.
+> ⚠️ **Dans Windows PowerShell 5.1 : toujours écrire `curl.exe`, jamais `curl` tout court.**
+>
+> Dans Windows PowerShell, `curl` n'est **pas** le vrai curl : c'est un **alias** (un surnom) vers la commande PowerShell `Invoke-WebRequest`, qui n'a pas les mêmes options. Résultat typique :
+>
+> ```
+> Invoke-WebRequest : Der Parameter kann nicht verarbeitet werden, da der Parametername "u" nicht eindeutig ist.
+> ```
+> (en français : « le paramètre "u" est ambigu »)
+>
+> Avec `curl.exe`, PowerShell lance le **vrai programme** curl (celui de Windows ou de Git), qui comprend `-u`, `-d`, etc.
+>
+> | Je tape | PowerShell lance |
+> |---|---|
+> | `curl` | `Invoke-WebRequest` (alias) ❌ |
+> | `curl.exe` | le vrai curl ✅ |
+>
+> Vérifier soi-même : `Get-Command curl` affiche `Alias curl -> Invoke-WebRequest`.
+> Pas de problème dans **Git Bash** ni dans **PowerShell 7**, où cet alias n'existe pas.
+
 Ce test utilise une paire PKCE toute prête : l'exemple officiel de la RFC 7636 (annexe B).
 
 | Paramètre | Valeur | Envoyé à |
@@ -112,16 +130,26 @@ Une vraie application génère une nouvelle paire à chaque connexion. Pour un t
    http://localhost:9000/oauth2/authorize?response_type=code&client_id=oidc-client&scope=openid%20profile&redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256
    ```
 3. Se connecter avec `user` et son mot de passe, puis cocher `profile` et valider le consentement.
-4. Le navigateur affiche une erreur, car rien ne tourne sur le port 8080. C'est normal : copier le `code=...` dans la barre d'adresse.
-5. Échanger le code contre les tokens, comme le ferait l'application cliente. Dans PowerShell, utiliser `curl.exe` et non `curl` (une seule ligne) :
+   Si l'utilisateur est déjà connecté (cookie de session) et a déjà donné son accord, le navigateur passe **directement** à l'étape 4 : c'est normal.
+4. Le navigateur affiche une erreur, car rien ne tourne sur le port 8080. C'est normal : copier ce qui suit `code=` dans la barre d'adresse.
+5. **Tout de suite** (le code expire en 5 minutes), échanger le code contre les tokens, comme le ferait l'application cliente. Dans PowerShell, coller le code entre les guillemets de la première ligne, puis lancer les deux lignes (**`curl.exe`**, voir l'avertissement ci-dessus) :
    ```
-   curl.exe -u oidc-client:secret -d grant_type=authorization_code -d code=COLLER_LE_CODE_ICI -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk http://localhost:9000/oauth2/token
+   $code = "COLLER_LE_CODE_ICI"
+   curl.exe -u oidc-client:secret -d grant_type=authorization_code -d "code=$code" -d redirect_uri=http://127.0.0.1:8080/login/oauth2/code/oidc-client -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk http://localhost:9000/oauth2/token
    ```
 6. La réponse est un JSON avec `access_token`, `id_token` et `refresh_token`. Coller l'`access_token` sur https://jwt.io pour voir son contenu.
 
 Erreurs fréquentes :
-- `OAuth 2.0 Parameter: code_challenge` à l'étape 2 : le `code_challenge` manque dans l'URL.
-- `{"error":"invalid_grant"}` à l'étape 5 : le `code_verifier` manque ou est faux, ou le code a déjà été utilisé ou a expiré. Le code est à usage unique et ne vit que quelques minutes : recommencer à l'étape 2.
+
+| Symptôme | Cause / solution |
+|---|---|
+| `Invoke-WebRequest : ... Parametername "u" ...` | `curl` au lieu de **`curl.exe`** (voir l'avertissement en haut de cette section) |
+| `OAuth 2.0 Parameter: code_challenge` à l'étape 2 | Le `code_challenge` manque dans l'URL (URL coupée lors du copier-coller) |
+| `{"error":"invalid_grant"}` à l'étape 5 | Code **expiré** (5 min), **déjà utilisé**, ou serveur **redémarré** entre-temps ; ou `code_verifier` manquant/faux. Recommencer à l'étape 2 avec un **nouveau** code |
+| `{"error":"unsupported_grant_type"}` | Faute de frappe : c'est `authorization_code` (pas `authentication_code`) |
+| `{"error":"invalid_client"}` | Faute de frappe dans `oidc-client:secret` |
+
+Un code ne s'échange **qu'une seule fois**. Le réutiliser déclenche dans les logs du serveur `WARN ... Invalidated authorization token(s) previously issued` : par sécurité, le serveur annule aussi les tokens déjà délivrés avec ce code (RFC 6749, section 4.1.2).
 
 Comme le logging de sécurité est en `trace`, la console montre pour chaque requête laquelle des deux chaînes la prend en charge.
 
