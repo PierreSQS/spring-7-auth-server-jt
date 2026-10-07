@@ -11,6 +11,12 @@ Branches:
 - JT's branches (`1-initial-project` … `10-k8s-issuer-name`, `8-server-settings`, `junie-init`, `main`) are copied unchanged into `origin` and must never be modified. The local remote `jt` points to JT's repo (fetch only, push disabled).
 - Branches are compared, **never merged**: no pull requests. A file that must exist on every one of my branches (like `README.md`) is committed on the reference branch and cherry-picked onto the others, so it never shows up in comparisons.
 - Compare JT vs mine locally with `git diff -M origin/8-package-refactor origin/8-package-refactor-sb411` (GitHub can't compare unrelated histories).
+- Tooling files (`CLAUDE.md`, `docs/`, `.claude/skills/`) belong on **every** version branch. A new version branch is always created from the latest one, so it inherits them automatically. **Exception, on purpose:** `8-package-refactor-sb403` is obsolete, kept only temporarily for comparison, and doesn't get them.
+- Branches of older Spring Boot versions are temporary: once superseded and no longer needed for comparison, they are deleted.
+
+## Claude Code skills
+
+- `.claude/skills/explain-code/`: explains code with an everyday analogy, an ASCII diagram, a step-by-step walkthrough and a common gotcha. Copied unchanged from [PierreSQS/eazybytes-spring-ai](https://github.com/PierreSQS/eazybytes-spring-ai) (`section09/springai/.claude/skills/explain-code/`, branch `hands-on-sb3.5.x`).
 
 ## Commands
 
